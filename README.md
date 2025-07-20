@@ -1,48 +1,51 @@
 **Backend Developer Take Home Assignment**
 
-Overview
+Project Description
 
-This project implements a backend service for processing and serving Flipkart offer data in response to the provided Flipkart Payment Options API response JSON.
+This service extracts and stores promotional offers from Flipkart's payment options API response. It exposes REST APIs to:
 
-Tech Stack
+Ingest Flipkart response JSON and store unique offers (POST /offer)
 
-Language: TypeScript
+Compute the best applicable discount for a given payable amount (GET /offers/best-discount?amountToPay=...)
 
-Runtime: Node.js
+Project Structure
 
-Framework: Express.js
+<img width="279" height="771" alt="image" src="https://github.com/user-attachments/assets/40966301-8a7d-46e8-9472-7df77d7813a7" />
 
-ORM: Prisma
-
-Database: MySQL
-
-Tools: ts-node-dev, dotenv
 
 Setup & Run Instructions
 
+```
 Clone the Repository
 git clone git@github.com:abhishekjedi/piepay-assignment.git
 cd piepay-assignment
 
 Install Dependencies
 npm install
+```
 
 Configure Environment Variables
 
 Create a .env file in the root directory and define the following:
+```
 DATABASE_URL=mysql://user:password@localhost:3306/dbname
 PORT=3000
+```
 
-Setup Database
+Setup Database: 
+```
 npx prisma migrate dev --name init
 npx prisma generate
+```
 
-Start the Server
+Start the Server:
+```
 yarn dev
+```
 
 API Endpoints
 
-POST /offer
+**POST /offer**
 
 Description: Accepts the Flipkart API JSON and extracts, transforms, and stores offers in the database.
 
@@ -54,67 +57,7 @@ Response:
 "noOfNewOffersCreated": 1
 }
 
-GET /highest-discount
-
-Description: Calculates the best discount applicable for the given amount from the stored offers.
-
-Response:
-{
-    "highestDiscountAmount": 375
-}
-
-Design Decisions
-
-**Data Deduplication**
-
-**Offers are uniquely identified by their adjustmentId.**
-
-Only new offers are inserted; existing adjustmentIds are ignored.
-
-**Unique constraint on adjustmentId in the database ensures deduplication.**
-
-**Discount Parsing Strategy**
-
-**Uses regex-based extraction to parse offer.summary strings for:**
-
-**Percentage cashback (e.g., 5%)**
-
-**Maximum cap (e.g., ₹750)**
-
-**Flat cashback (e.g., Flat ₹10)**
-
-Only the first payment instrument and bank are considered per offer.
-
-**Assumes offer summaries are consistent in format.**
-
-Prisma Client Usage
-
-**Prisma client** is implemented as a **singleton** to avoid multiple database connections.
-
-PrismaDBClient class provides **generic insertMany, and findMany** methods to support various models.
-
-Typescript Design
-
-All code is written in **TypeScript** with strict **type support.**
-
-**Models and controller logic are modular** and reusable.
-
-Project Structure
-
-<img width="279" height="771" alt="image" src="https://github.com/user-attachments/assets/40966301-8a7d-46e8-9472-7df77d7813a7" />
-
-
-How to Test
-
-**Use any REST client like Postman or curl:**
-
-get highest discount curl
-```
-curl --location 'http://localhost:3000/highest-discount?amountToPay=7500&bankName=FLIPKARTAXISBANK&paymentInstrument=CREDIT' \
---data ''
-```
-
-curl to post offer
+Curl:
 ```
 curl --location 'http://localhost:3000/offer' \
 --header 'Content-Type: application/json' \
@@ -442,16 +385,121 @@ curl --location 'http://localhost:3000/offer' \
 ```
 
 
-Edge Cases Handled
+**GET /highest-discount**
 
-Server won't crash on bad input; errors are caught and logged.
+Description: Calculates the best discount applicable for the given amount from the stored offers.
 
-Silent Prisma crashes are handled using uncaughtException and unhandledRejection handlers.
+Response:
+{
+    "highestDiscountAmount": 375
+}
 
-Empty or malformed Flipkart data results in 0 offers created.
+Curl: 
+```
+curl --location 'http://localhost:3000/highest-discount?amountToPay=7500&bankName=FLIPKARTAXISBANK&paymentInstrument=CREDIT' \
+--data ''
+```
 
-Flat cashback and percent cashback with cap both supported in discount calculation.
+
+**Assumptions Made: **
+
+```
+Offers are uniquely identified using adjustment_id to avoid duplicates.
+
+Only offer_sections are parsed; offer_banners are ignored.
+
+Offer titles are parsed using regex to extract percentage, cap, and flat cashback values.
+
+Only the first contributor bank and payment instrument are stored.
+
+No-cost EMI offers are excluded from discount calculation.
+
+Prisma is used as a singleton to maintain a single DB connection.
+
+API is open and unauthenticated, assuming internal usage for this assignment.
+```
+
+**Design Choices:**
 
 
+**Framework: Nodejs, Express.js with TypeScript**
 
+    - Chosen for its minimal setup, clear routing model, and excellent compatibility with TypeScript for type-safe API development.
+
+**ORM: Prisma**
+
+    - Prisma provides a modern, type-safe ORM with clean schema modeling, helpful CLI tools, and great TypeScript support—ideal for rapid and reliable        development.
+
+**Database: MySQL (local)**
+
+    - It’s a reliable relational database that integrates well with Prisma and suits structured offer data.
+
+Prisma Client Singleton
+
+    - A singleton pattern was used for the Prisma client to avoid creating multiple database connections across modules and ensure consistency.
+
+Database Schema
+The Offer table includes:
+```
+id(unique identifier for our table automatically generated)
+title (text summary of the offer)
+bankName (first bank from contributors)
+paymentInstrument (first payment method from contributors)
+adjustmentId (unique identifier from flipkart)
+createdAt (automatically generated timestamp)
+```
+
+Discount Calculation Strategy
+Since offer details come in unstructured summary strings, **regex-based** parsing was used to extract:
+
+```
+Percentage (10% discount)
+cashback (flat 10 rs cashback)
+caps (upto 100 rs discount)
+```
+
+```Offers without clear numeric benefits or parsing errors are excluded from discount calculations.```
+
+
+**Scaling Strategy for GET /highest-discount**
+
+To scale the best-discount endpoint to handle 1,000+ requests/second:
+
+**Cache Preprocessed Discounts**
+
+    - Precompute and cache the max discount for popular amount buckets (e.g., ₹500, ₹1000, ₹5000)
+    
+**Avoid Per-Request DB Calls**
+
+    - Load offers into memory at startup or periodically refresh from DB.
+    
+    - Use read-only replicas if DB access is unavoidable.
+    
+**Optimize Parsing Logic**
+
+    - Preprocess regex parsing at ingestion (POST /offers) and store percent & cap directly in DB.
+    
+**Horizontal Scaling**
+
+    - Run multiple stateless Node.js instances behind a load balancer (e.g., Nginx, AWS ELB).
+
+
+**Improvements with More Time**
+
+
+Robust Offer Parsing Engine
+
+    - Replace regex-based parsing with a rule engine or DSL that can extract discounts more accurately from diverse offer summaries.
+    
+Unit & Integration Tests
+
+    - Add automated tests for the parsing logic, API routes, and database operations using Jest or Vitest.
+    
+Input Validation & Error Handling
+
+     - Use better input validation for offer api
+     
+Rate Limiting & Caching
+
+    - Add rate limiting to protect endpoints and caching (e.g., Redis) to improve performance under load.
 
